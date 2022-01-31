@@ -1,11 +1,11 @@
 from app.db.session import db_session
 from app.db.crud.server import get_server
 
-from tasks import celery_app
+from .config import huey
 from tasks.utils.runner import run
 
 
-@celery_app.task()
+@huey.task(priority=1)
 def tc_runner(
     server_id: int,
     port_num: int,
@@ -21,7 +21,7 @@ def tc_runner(
         args += f' -i={ingress_limit}kbit'
     args += f' {port_num}'
 
-    return run(
+    run(
         server=server,
         playbook="tc.yml",
         extravars={"host": server.ansible_name, "tc_args": args},

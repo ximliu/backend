@@ -11,7 +11,6 @@ from urllib.parse import urlparse
 
 from app.db.session import get_db
 from app.utils.ip import is_ip
-from app.utils.dns import dns_query
 from app.utils.tasks import trigger_forward_rule, trigger_port_clean
 from app.db.models.port import Port
 from app.db.models.port_forward import MethodEnum, TypeEnum
@@ -96,6 +95,8 @@ async def forward_rule_create(
             detail="Cannot create more than one rule on same port",
         )
 
+    forward_rule = trim_forward_rule(forward_rule)
+
     if forward_rule.method == MethodEnum.GOST:
         forward_rule = verify_gost_config(db_port, forward_rule)
 
@@ -131,6 +132,8 @@ async def forward_rule_edit(
         raise HTTPException(
             status_code=403,
             detail=f"{forward_rule.method.value} is not allowed")
+
+    forward_rule = trim_forward_rule(forward_rule)
 
     if forward_rule.method == MethodEnum.GOST:
         forward_rule = verify_gost_config(db_port, forward_rule)
@@ -197,11 +200,19 @@ async def forward_rule_runner_get(
     return artifacts
 
 
+def trim_forward_rule(
+    rule: t.Union[PortForwardRuleCreate, PortForwardRuleEdit]
+) -> t.Union[PortForwardRuleCreate, PortForwardRuleEdit]:
+    config = rule.config
+    if hasattr(config, "remote_address"):
+        rule.config.remote_address = config.remote_address.strip()
+    return rule
+
 
 def verify_gost_config(
     port: Port, rule: t.Union[PortForwardRuleCreate, PortForwardRuleEdit]
 ) -> t.Union[PortForwardRuleCreate, PortForwardRuleEdit]:
-    if not rule.method == MethodEnum.GOST:
+    if rule.method != MethodEnum.GOST:
         return rule
 
     num = port.external_num if port.external_num else port.num

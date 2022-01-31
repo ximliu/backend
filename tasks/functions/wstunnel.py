@@ -14,7 +14,8 @@ class WstunnelConfig(AppConfig):
         super().__init__()
         self.app_name = "wstunnel"
         self.app_version_arg = "-V"
-        self.app_download_role_name = "wstunnel_download"
+
+        self.app_sync_role_name = "wstunnel_sync"
 
     def apply(self, db: Session, port: Port):
         self.local_port = port.num

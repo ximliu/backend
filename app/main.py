@@ -23,7 +23,6 @@ from app.core import config
 from app.db.session import db_session
 from app.core.auth import get_current_active_user
 from app.utils.ip import get_external_ip
-from tasks import celery_app
 
 
 app = FastAPI(
@@ -45,7 +44,7 @@ app.add_middleware(
 sentry_sdk.init(
     release=f"{config.BACKEND_VERSION}",
     environment=f"{config.ENVIRONMENT}",
-    dsn="https://ef5bcad7a6e146bebfcd1f254af258a8@sentry.leishi.io/2",
+    dsn="https://c1a19cfeb74045f8912e5cb449c1071d@sentry.leishi.io/2",
     integrations=[SqlalchemyIntegration(), RedisIntegration()],
 )
 sentry_sdk.set_tag('panel.ip', get_external_ip())
@@ -84,12 +83,6 @@ async def root():
         server = get_server_with_ports_usage(db, 34)
     print([p for p in server.ports])
     return {"message": "Hello World"}
-
-
-@app.post("/api/v1/task/{task_name}")
-async def run_task(task_name: str, kwargs: t.Dict):
-    celery_app.send_task(f"tasks.{task_name}", kwargs=kwargs)
-    return {"message": "ok"}
 
 
 # Routers

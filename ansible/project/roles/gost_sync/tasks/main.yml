@@ -1,4 +1,20 @@
 ---
-- name: Create gost config directory if it does not exist
-  include_role:
-    name: app_sync
+- name: Get architecture
+  shell: uname -m
+  register: arch
+- name: Sync gost binary for X64
+  when: arch.stdout == 'x86_64'
+  copy:
+    src: files/gost-linux-amd64-2.11.1
+    dest: /usr/local/bin/gost
+    mode: +x
+    owner: root
+    group: root
+- name: Sync gost binary for ARM64
+  when: arch.stdout == 'aarch64'
+  copy:
+    src: files/gost-linux-armv8-2.11.1
+    dest: /usr/local/bin/gost
+    mode: +x
+    owner: root
+    group: root

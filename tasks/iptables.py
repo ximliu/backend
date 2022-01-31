@@ -1,4 +1,5 @@
 import traceback
+from huey import crontab
 
 from app.db.session import db_session
 from app.db.models.port_forward import MethodEnum
@@ -8,17 +9,17 @@ from app.db.crud.server import (
 )
 from app.db.crud.port import get_port
 from app.db.crud.port_forward import get_all_ddns_rules
+from app.core.config import DDNS_INTERVAL_SECONDS
 from app.utils.dns import dns_query
 from app.utils.ip import is_ip
 
-from tasks import celery_app
+from .config import huey
 from tasks.app import rule_runner
 from tasks.utils.runner import run
-from tasks.utils.server import iptables_restore_service_enabled
 from tasks.utils.handlers import status_handler, iptables_finished_handler
 
 
-@celery_app.task(priority=0)
+@huey.task(priority=4)
 def iptables_runner(
     port_id: int,
     server_id: int,
@@ -50,19 +51,18 @@ def iptables_runner(
             "host": server.ansible_name,
             "local_port": local_port,
             "iptables_args": args,
-            "init_iptables": not iptables_restore_service_enabled(
-                server.config
-            ),
         }
 
-        return run(
+        run(
             server=server,
             playbook="iptables.yml",
             extravars=extravars,
             status_handler=lambda s, **k: status_handler(
                 port_id, s, update_status
             ),
-            finished_callback=iptables_finished_handler(server, port_id, True)
+            finished_callback=iptables_finished_handler(
+                server.id, port_id, True
+            )
             if update_status
             else lambda r: None,
         )
@@ -77,7 +77,7 @@ def iptables_runner(
             db.commit()
 
 
-@celery_app.task()
+@huey.task(priority=4)
 def iptables_reset_runner(
     server_id: int,
     port_num: int,
@@ -90,14 +90,14 @@ def iptables_reset_runner(
         "iptables_args": f" reset {port_num}",
     }
 
-    return run(
+    run(
         server=server,
         playbook="iptables.yml",
         extravars=extravars,
     )
 
 
-@celery_app.task()
+@huey.periodic_task(crontab(minute=f"*/{int(DDNS_INTERVAL_SECONDS)//60}"))
 def ddns_runner():
     with db_session() as db:
         rules = get_all_ddns_rules(db)
@@ -108,13 +108,13 @@ def ddns_runner():
             and not is_ip(rule.config.get("remote_address"))
         ):
             updated_ip = dns_query(rule.config["remote_address"])
-            if updated_ip != rule.config["remote_ip"]:
+            if updated_ip and updated_ip != rule.config["remote_ip"]:
                 print(
                     f"DNS changed for address {rule.config['remote_address']}, "
                     + f"{rule.config['remote_ip']}->{updated_ip}"
                 )
                 if rule.method == MethodEnum.IPTABLES:
-                    iptables_runner.delay(
+                    iptables_runner(
                         rule.port.id,
                         rule.port.server.id,
                         rule.port.num,
@@ -124,4 +124,4 @@ def ddns_runner():
                         update_status=True,
                     )
                 else:
-                    rule_runner.delay(rule_id=rule.id)
+                    rule_runner(rule_id=rule.id)
