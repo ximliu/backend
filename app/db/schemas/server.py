@@ -99,6 +99,12 @@ class ServerConfig(BaseModel):
     v2ray_disabled: t.Optional[bool]
     wstunnel: t.Optional[str]
     wstunnel_disabled: t.Optional[bool]
+    realm: t.Optional[str]
+    realm_disabled: t.Optional[bool]
+    iperf: t.Optional[str]
+    iperf_disabled: t.Optional[bool]
+    haproxy: t.Optional[str]
+    haproxy_disabled: t.Optional[bool]
 
 
 class ServerBase(BaseModel):
@@ -195,6 +201,9 @@ class ServerConfigEdit(BaseModel):
     tiny_port_mapper_disabled: t.Optional[bool]
     v2ray_disabled: t.Optional[bool]
     wstunnel_disabled: t.Optional[bool]
+    realm_disabled: t.Optional[bool]
+    iperf_disabled: t.Optional[bool]
+    haproxy_disabled: t.Optional[bool]
 
     class Config:
         orm_mode = True

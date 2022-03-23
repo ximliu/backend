@@ -22,9 +22,11 @@ from app.db.schemas.port_forward import (
 )
 from app.db.crud.port_forward import (
     get_forward_rule,
+    get_forward_rule_for_server,
     create_forward_rule,
     edit_forward_rule,
     delete_forward_rule,
+    delete_forward_rule_by_id,
     get_all_gost_rules,
 )
 from app.db.crud.port import get_port
@@ -105,6 +107,25 @@ async def forward_rule_create(
     return forward_rule
 
 
+@r.post(
+    "/servers/{server_id}/forward_rules",
+    response_model=t.List[PortForwardRuleOut],
+)
+async def forward_rules_recreate(
+    response: Response,
+    server_id: int,
+    db=Depends(get_db),
+    user=Depends(get_current_active_admin),
+):
+    """
+    Recreate all port forward rules of the server
+    """
+    db_forward_rules = get_forward_rule_for_server(db, server_id)
+    for forward_rule in db_forward_rules:
+        trigger_forward_rule(forward_rule)
+    return db_forward_rules
+
+
 @r.put(
     "/servers/{server_id}/ports/{port_id}/forward_rule",
     response_model=PortForwardRuleOut,
@@ -164,6 +185,26 @@ async def forward_rule_delete(
     return forward_rule
 
 
+@r.delete(
+    "/servers/{server_id}/forward_rules",
+    response_model=t.List[PortForwardRuleOut],
+)
+async def forward_rules_delete(
+    response: Response,
+    server_id: int,
+    db=Depends(get_db),
+    user=Depends(get_current_active_admin),
+):
+    """
+    Delete all port forward rules of the server
+    """
+    db_forward_rules = get_forward_rule_for_server(db, server_id)
+    for forward_rule in db_forward_rules:
+        delete_forward_rule_by_id(db, forward_rule.id)
+        trigger_port_clean(forward_rule.port.server, forward_rule.port)
+    return db_forward_rules
+
+
 @r.get(
     "/servers/{server_id}/ports/{port_id}/forward_rule/artifacts",
     response_model=PortForwardRuleArtifacts,
@@ -203,9 +244,10 @@ async def forward_rule_runner_get(
 def trim_forward_rule(
     rule: t.Union[PortForwardRuleCreate, PortForwardRuleEdit]
 ) -> t.Union[PortForwardRuleCreate, PortForwardRuleEdit]:
-    config = rule.config
-    if hasattr(config, "remote_address"):
-        rule.config.remote_address = config.remote_address.strip()
+    if remote_address := rule.config.get("remote_address"):
+        rule.config["remote_address"] = remote_address.strip()
+    if server_address := rule.config.get("server_address"):
+        rule.config["server_address"] = server_address.strip()
     return rule
 
 
@@ -216,7 +258,8 @@ def verify_gost_config(
         return rule
 
     num = port.external_num if port.external_num else port.num
-    for node in rule.config.ServeNodes:
+    nodes = rule.config.get("ServeNodes", [])
+    for node in nodes:
         if node.startswith(":"):
             if not node.startswith(f":{num}"):
                 raise HTTPException(

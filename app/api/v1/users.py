@@ -7,14 +7,15 @@ from fastapi.encoders import jsonable_encoder
 from app.core.security import verify_password
 from app.db.session import get_db
 from app.db.crud.user import (
-    get_users,
+    get_users_with_ports_usage,
     get_user,
+    get_user_by_email,
     create_user,
     delete_user,
     edit_user,
     edit_me,
     get_user_servers,
-    get_user_ports,
+    get_user_ports_with_usage,
 )
 from app.db.crud.server import delete_server_user
 from app.db.crud.port import delete_port_user
@@ -52,25 +53,25 @@ async def users_list(
     current_user=Depends(get_current_active_user),
 ):
     """
-    Get all users
+    Get all users with usage
     """
-    users = jsonable_encoder(get_users(db))
+    users = jsonable_encoder(get_users_with_ports_usage(db))
     # This is necessary for react-admin to work
     response.headers["Content-Range"] = f"0-9/{len(users)}"
     users_with_usage = []
     for user in users:
+        user["download_usage"] = 0
+        user["upload_usage"] = 0
         for port in user.get("allowed_ports", []):
             if port["port"]["usage"]:
-                user["download_usage"] = port["port"]["usage"].get(
+                user["download_usage"] += port["port"]["usage"].get(
                     "download", 0
                 )
-                user["readable_download_usage"] = get_readable_size(
-                    user["download_usage"]
-                )
-                user["upload_usage"] = port["port"]["usage"].get("upload", 0)
-                user["readable_upload_usage"] = get_readable_size(
-                    user["upload_usage"]
-                )
+                user["upload_usage"] += port["port"]["usage"].get("upload", 0)
+        user["readable_download_usage"] = get_readable_size(
+            user["download_usage"]
+        )
+        user["readable_upload_usage"] = get_readable_size(user["upload_usage"])
         users_with_usage.append(user)
     return users_with_usage
 
@@ -135,6 +136,12 @@ async def user_create(
     """
     Create a new user
     """
+    db_user = get_user_by_email(db, user.email)
+    if db_user:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Account already exists",
+        )
     return create_user(db, user)
 
 
@@ -205,8 +212,9 @@ async def user_delete(
         for port in user.ports:
             edit_port_usage(
                 db,
-                port,
+                port.id,
                 PortUsageEdit(
+                    port_id=port.id,
                     download=0,
                     upload=0,
                     download_accumulate=0,
@@ -215,9 +223,9 @@ async def user_delete(
                     upload_checkpoint=0,
                 ),
             )
-            if port.rule:
+            if port.forward_rule:
                 trigger_port_clean(port.server, port, False)
-                delete_forward_rule_by_id(db, port.rule.id)
+                delete_forward_rule_by_id(db, port.forward_rule.id)
         for port_user in user.allowed_ports:
             delete_port_user(
                 db, port_user.port.server.id, port_user.port_id, user.id
@@ -242,12 +250,13 @@ async def user_servers_get(
     Get user's servers
     """
     user_servers = jsonable_encoder(get_user_servers(db, user_id))
-    user_ports = get_user_ports(db, user_id)
+    user_ports = jsonable_encoder(get_user_ports_with_usage(db, user_id))
     port_by_server = defaultdict(list)
     for port_user in user_ports:
-        port_by_server[port_user.port.server.id].append(port_user)
+        port_user["usage"] = port_user["port"]["usage"]
+        port_by_server[port_user["port"]["server_id"]].append(port_user)
     formatted_user_servers = []
     for server in user_servers:
-        server["ports"] = port_by_server[server['server_id']]
+        server["ports"] = port_by_server[server["server_id"]]
         formatted_user_servers.append(server)
     return formatted_user_servers

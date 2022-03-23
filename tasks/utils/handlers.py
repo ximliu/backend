@@ -7,6 +7,7 @@ from app.db.models.port_forward import PortForwardRule
 from app.db.crud.port_forward import get_forward_rule
 from app.db.crud.server import get_server
 from tasks.utils.usage import update_traffic
+from tasks.utils.rule import correct_running_services
 
 
 def update_facts(server_id: int, facts: t.Dict, md5: str = None):
@@ -42,6 +43,8 @@ def update_facts(server_id: int, facts: t.Dict, md5: str = None):
             "tiny_port_mapper",
             "v2ray",
             "wstunnel",
+            "realm",
+            "haproxy",
         ]:
             if func in facts:
                 db_server.config[func] = facts.get(func)
@@ -77,15 +80,18 @@ def iptables_finished_handler(
             server = get_server(db, server_id)
         facts = runner.get_fact_cache(server.ansible_name)
         if facts:
-            if facts.get("traffic", "") and update_traffic_bool:
+            if (traffic := facts.get("traffic", "")) and update_traffic_bool:
                 update_traffic(
-                    server, facts.get("traffic", ""), accumulate=accumulate
+                    server, traffic, accumulate=accumulate
                 )
+            if rules := facts.get("rules", ""):
+                correct_running_services(server.id, rules)
             if port_id is not None and (
                 facts.get("error") or facts.get("systemd_error")
             ):
                 update_rule_error(server.id, port_id, facts)
             update_facts(server.id, facts)
+
     return wrapper
 
 
@@ -113,15 +119,12 @@ def status_handler(port_id: int, status_data: dict, update_status: bool):
 
 def server_facts_event_handler(server_id: int):
     def wrapper(event):
-        if (
-            "event_data" in event
-            and event["event_data"].get("task") == "Gathering Facts"
-            and not event.get("event", "").endswith("start")
-        ):
-            res = event["event_data"].get("res", {})
-            update_facts(
-                server_id,
-                res.get("ansible_facts") if "ansible_facts" in res else res,
-            )
+        if not event.get("event", "").endswith("start"):
+            if event := event.get("event_data", ""):
+                res = event.get("res", {})
+                update_facts(
+                    server_id,
+                    res.get("ansible_facts") if "ansible_facts" in res else res,
+                )
 
     return wrapper

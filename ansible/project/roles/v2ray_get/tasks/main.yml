@@ -1,10 +1,12 @@
 ---
-- name: Check v2ray exist
+- name: Check v2ray core exist
   block:
-    - name: Check v2ctl
-      shell: v2ctl uuid
+    - name: Get xray version
+      shell: "{{ app_path }}xray -version"
+    - name: Check v2ctl exist
+      shell: "{{ app_path }}v2ctl uuid"
     - name: Get v2ray version
-      shell: v2ray -version
+      shell: "{{ app_path }}v2ray -version"
       register: v2ray
     - name: Set fact for v2ray version
       set_fact:

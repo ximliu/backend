@@ -12,6 +12,7 @@ class RealmConfig(AppConfig):
     def __init__(self):
         super().__init__()
         self.app_name = "realm"
+        self.app_path = "/usr/local/bin/"
         self.app_version_arg = "--version"
 
         self.app_sync_role_name = "realm_sync"
@@ -31,8 +32,9 @@ class RealmConfig(AppConfig):
         args =(
             f"-l [::]:{port.num} "
             f"-uzr {remote_address}:{remote_port} "
+            f"-f "
             f"--tcp-timeout 0 "
-            f"--udp-timeout 0"
+            f"--udp-timeout 120"
         )
         return f"/usr/local/bin/realm {args}"
 
