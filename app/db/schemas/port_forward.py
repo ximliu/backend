@@ -10,7 +10,7 @@ from app.utils.ip import is_ip, is_ipv6
 
 def check_type(forward_type: str) -> str:
     if forward_type not in ("TCP", "UDP", "ALL"):
-        raise ValueError(f"Invalid forward type: {forward_type}")
+        forward_type = "ALL"
     return forward_type
 
 
@@ -21,9 +21,7 @@ def check_ip(ip: str) -> str:
 
 
 def trim_address(address: str) -> str:
-    if not address:
-        raise ValueError(f"Invalid empty address: {address}")
-    if address[0] == "[" and address[-1] == "]":
+    if address and address[0] == "[" and address[-1] == "]":
         address = address[1:-1]
         if not address:
             raise ValueError(f"Invalid address: [{address}]")
@@ -36,36 +34,46 @@ def check_port(port: int) -> int:
     return port
 
 
+def to_rule_classname(method_name: str) -> str:
+    components = method_name.split("_")
+    return "".join(x.capitalize() for x in components)
+
+
 def check_config(config: t.Dict, values: t.Dict) -> t.Dict:
     method = values.get("method")
-    config = eval(method.name.capitalize() + "Config(**config)")
+    try:
+        config = eval(to_rule_classname(method.name) + "Config(**config)")
+    except NameError:
+        raise ValueError(f"{method.value} is not supported now")
     return config
 
 
-class IptablesConfig(BaseModel):
-    type: TypeEnum
+class GeneralRuleConfig(BaseModel):
+    type: t.Optional[TypeEnum]
     remote_ip: t.Optional[str]
     remote_address: str
     remote_port: int
 
-    _type = validator("type", pre=True, allow_reuse=True)(check_type)
+    _type = validator("type", pre=True, always=True, allow_reuse=True)(
+        check_type
+    )
     _remote_ip = validator("remote_ip", pre=True, allow_reuse=True)(check_ip)
-    _remote_address = validator("remote_address", pre=True, allow_reuse=True)(
+    _remote_address = validator("remote_address", allow_reuse=True)(
         trim_address
     )
     _remote_port = validator("remote_port", allow_reuse=True)(check_port)
 
 
-class SocatConfig(BaseModel):
-    type: TypeEnum
-    remote_address: str
-    remote_port: int
+class IptablesConfig(GeneralRuleConfig):
+    pass
 
-    _type = validator("type", pre=True, allow_reuse=True)(check_type)
-    _remote_address = validator("remote_address", pre=True, allow_reuse=True)(
-        trim_address
-    )
-    _remote_port = validator("remote_port", allow_reuse=True)(check_port)
+
+class TinyPortMapperConfig(GeneralRuleConfig):
+    pass
+
+
+class SocatConfig(GeneralRuleConfig):
+    pass
 
 
 class EhcoConfig(BaseModel):
@@ -74,7 +82,7 @@ class EhcoConfig(BaseModel):
     remote_address: str
     remote_port: int
 
-    _remote_address = validator("remote_address", pre=True, allow_reuse=True)(
+    _remote_address = validator("remote_address", allow_reuse=True)(
         trim_address
     )
     _remote_port = validator("remote_port", allow_reuse=True)(check_port)
@@ -148,10 +156,8 @@ class IperfConfig(BaseModel):
 
     @validator("expire_second", pre=True)
     def check_expire_second(cls, v):
-        if v <= 0:
-            raise ValueError("Expire second must be greater than 0")
-        elif v > 24 * 60 * 60:
-            raise ValueError(f"Expire second must be less than {24 * 60 * 60}")
+        if v <= 0 or v > 24 * 60 * 60:
+            v = 60 * 10  # default 10 min
         return v
 
     @validator("expire_time", pre=True, always=True)
@@ -181,6 +187,7 @@ class V2rayConfig(BaseModel):
 
 
 class RealmConfig(BaseModel):
+    command: str
     remote_address: str
     remote_port: int
 
@@ -188,6 +195,12 @@ class RealmConfig(BaseModel):
         trim_address
     )
     _remote_port = validator("remote_port", allow_reuse=True)(check_port)
+
+    @validator("command", pre=True)
+    def check_command(cls, v):
+        if v not in ("tcp", "ws-in", "ws-out", "wss-in", "wss-out"):
+            raise ValueError(f"Invalid command: {v}")
+        return v
 
 
 class BrookConfig(BaseModel):
@@ -200,11 +213,11 @@ class BrookConfig(BaseModel):
     password: t.Optional[str]
 
     _remote_ip = validator("remote_ip", pre=True, allow_reuse=True)(check_ip)
-    _remote_address = validator("remote_address", pre=True, allow_reuse=True)(
+    _remote_address = validator("remote_address", allow_reuse=True)(
         trim_address
     )
     _remote_port = validator("remote_port", allow_reuse=True)(check_port)
-    _server_address = validator("server_address", pre=True, allow_reuse=True)(
+    _server_address = validator("server_address", allow_reuse=True)(
         trim_address
     )
     _server_port = validator("server_port", allow_reuse=True)(check_port)
@@ -232,7 +245,7 @@ class WstunnelConfig(BaseModel):
     remote_port: t.Optional[int]
 
     _proxy_port = validator("proxy_port", allow_reuse=True)(check_port)
-    _remote_address = validator("remote_address", pre=True, allow_reuse=True)(
+    _remote_address = validator("remote_address", allow_reuse=True)(
         trim_address
     )
     _remote_port = validator("remote_port", allow_reuse=True)(check_port)
@@ -331,6 +344,10 @@ class HaproxyConfig(BaseModel):
                 address = f"[{address}]"
             v[idx] = f"{address}:{port}"
         return v
+
+
+class NodeExporterConfig(BaseModel):
+    pass
 
 
 class PortForwardRuleBase(BaseModel):
